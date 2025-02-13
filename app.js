@@ -44,6 +44,10 @@ async function userRegistration(chatId, name) {
         uid: new_uid,
         id: chatId,
         name: name,
+        status: {
+            get_description: false,
+            get_time: false
+        },
         // params
         regDate: `${day}.${month}.${year}`
     })
@@ -53,6 +57,13 @@ async function userRegistration(chatId, name) {
 
     return bot.sendMessage(chatId, `Hello Message for ToDoList`)
 }
+
+bot.setMyCommands([
+    {command: '/start', description: 'Запуск'},
+    {command: '/menu', description: 'Главное меню'},
+    {command: '/help', description: 'Информация'}
+])
+
 bot.on('text', async msg => {
     if (msg.chat.type === 'supergroup' || msg.chat.type === 'group') return
     const chatId = msg.chat.id
@@ -61,4 +72,63 @@ bot.on('text', async msg => {
     if(!user) {
         await userRegistration(chatId, msg.chat.first_name);
     }
+
+    if(user.status.get_description) {
+        const task = await tasks.findOne({$and: [{"u_id": user.uid}, {"wait_for_accept": true}]});
+
+        task.description = msg.text;
+        user.status.get_description = false;
+
+        await users.updateOne({"uid": user.uid}, {$set: user});
+        await tasks.updateOne({$and: [{"u_id": user.uid}, {"wait_for_accept": true}]}, {$set: task});
+
+        return bot.sendMessage(chatId, `Введите сроки для задачи в форме ДД.ММ (либо день месяц)`);
+    }
+    if(user.status.get_time) {
+        const task = await tasks.findOne({$and: [{"u_id": user.uid}, {"wait_for_accept": true}]});
+
+        task.wait_for_accept = false;
+        user.status.get_time = false;
+
+        await users.updateOne({"uid": user.uid}, {$set: user});
+        await tasks.updateOne({$and: [{"u_id": user.uid}, {"wait_for_accept": true}]}, {$set: task});
+
+        return bot.sendMessage(chatId, `Задача №${task.id} создана!
+        
+        Описание: ${task.description}
+        Срок сдачи: ${task.time}`);
+    }
+})
+
+bot.onText(/^(?:cghfdrf|справка|\/help|help|gjvjom|помощь)$/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = await users.findOne({"id": chatId});
+
+    return bot.sendMessage(chatId, `Help msg`)
+})
+
+bot.onText(/^(?:add|\/add|lj,fdbnm|адд|добавить|плюс)\s(.*)$/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = await users.findOne({"id": chatId});
+
+    let new_id = stats.tasks + 1;
+    stats.tasks++;
+    await saveStats();
+
+    await tasks.insertOne({
+        "id": new_id,
+        "u_id": user.uid,
+        "name": match[1],
+        "description": null,
+        "time": null,
+        "overdue": null,
+        "wait_for_accept": true
+    })
+
+    user.status.get_description = true;
+    user.status.get_time = true;
+
+    await users.updateOne({"uid": user.uid}, {$set: user});
+
+    return bot.sendMessage(chatId, `Введите подробное описание для задачи:`);
 })
